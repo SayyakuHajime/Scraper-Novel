@@ -6,7 +6,6 @@ A simple Python tool to scrape novel content from the Bilibili website for perso
 - Python 3.13+ 
 - [UV](https://docs.astral.sh/uv/) package manager
 - Google Chrome browser
-- ChromeDriver ([Download here](https://chromedriver.chromium.org/))
 
 ### Installation & Usage
 

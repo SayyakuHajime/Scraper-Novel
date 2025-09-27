@@ -3,221 +3,165 @@ import time
 import re
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
-from selenium.common.exceptions import TimeoutException, NoSuchElementException
 
+def setup_driver(headless=True):
+    chrome_options = Options()
+    if headless:
+        chrome_options.add_argument("--headless")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    
+    driver = webdriver.Chrome(options=chrome_options)
+    print("Chrome WebDriver initialized.")
+    return driver
 
-class BilibiliNovelScraper:
-    def __init__(self, headless=True):
-        """Initialize the scraper with Chrome WebDriver."""
-        self.driver = None
-        self.wait = None
-        self.headless = headless
-        self.setup_driver()
+def save_chapter(chapter_title, content, index, output_dir):
+    if not content:
+        return False
     
-    def setup_driver(self):
-        """Set up Chrome WebDriver with options."""
-        chrome_options = Options()
-        if self.headless:
-            chrome_options.add_argument("--headless")
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
-        chrome_options.add_argument("--disable-gpu")
-        chrome_options.add_argument("--window-size=1920,1080")
-        
-        try:
-            self.driver = webdriver.Chrome(options=chrome_options)
-            self.wait = WebDriverWait(self.driver, 10)
-            print("Chrome WebDriver initialized successfully.")
-        except Exception as e:
-            print(f"Error initializing Chrome WebDriver: {e}")
-            print("Please make sure ChromeDriver is installed and in PATH.")
-            raise
+    # Clean filename
+    safe_title = re.sub(r'[<>:"/\\|?*]', '_', chapter_title)
+    filename = f"Chapter_{index:03d}_{safe_title[:50]}.txt"
+    filepath = os.path.join(output_dir, filename)
     
-    def extract_chapters(self, url):
-        """Extract chapter list from the novel page."""
-        print(f"Loading novel page: {url}")
-        self.driver.get(url)
-        time.sleep(3)
-        
-        # Get novel title
-        try:
-            title_element = self.driver.find_element(By.TAG_NAME, "h1")
-            novel_title = title_element.text.strip() or "Unknown Novel"
-        except:
-            novel_title = "Unknown Novel"
-        
-        print(f"Found novel: {novel_title}")
-        
-        # Find chapters using XPath from README
-        chapters = []
-        chapter_index = 1
-        
-        while True:
-            try:
-                if chapter_index == 1:
-                    xpath = "/html/body/div[2]/div[2]/div/div[2]/div/div[1]/div[2]/div[1]/div[1]"
-                else:
-                    xpath = f"/html/body/div[2]/div[2]/div/div[2]/div/div[{chapter_index}]/div[2]/div[1]/div[1]"
-                
-                chapter_element = self.driver.find_element(By.XPATH, xpath)
-                chapter_title = chapter_element.text.strip()
-                chapter_link = chapter_element.find_element(By.TAG_NAME, "a").get_attribute("href")
-                
-                if chapter_title and chapter_link:
-                    chapters.append({
-                        'title': chapter_title,
-                        'url': chapter_link,
-                        'index': chapter_index
-                    })
-                    print(f"Chapter {chapter_index}: {chapter_title}")
-                
-                chapter_index += 1
-                
-            except NoSuchElementException:
-                break
-            except Exception as e:
-                print(f"Error finding chapter {chapter_index}: {e}")
-                break
-        
-        print(f"Found {len(chapters)} chapters total")
-        return novel_title, chapters
+    with open(filepath, 'w', encoding='utf-8') as f:
+        f.write(f"Chapter {index}: {chapter_title}\n")
+        f.write("=" * 80 + "\n\n")
+        f.write(content)
     
-    def scrape_chapter(self, chapter_url):
-        """Scrape content from a single chapter."""
-        try:
-            self.driver.get(chapter_url)
-            time.sleep(2)
-            
-            # Use XPath from README specification
-            content_xpath = "/html/body/div[2]/div[4]/div[1]/div[4]"
-            content_element = self.wait.until(
-                EC.presence_of_element_located((By.XPATH, content_xpath))
-            )
-            
-            # Extract paragraphs
-            paragraphs = []
-            paragraph_index = 1
-            
-            while True:
-                try:
-                    paragraph_xpath = f"{content_xpath}/p[{paragraph_index}]"
-                    paragraph_element = self.driver.find_element(By.XPATH, paragraph_xpath)
-                    text = paragraph_element.text.strip()
-                    if text:
-                        paragraphs.append(text)
-                    paragraph_index += 1
-                except NoSuchElementException:
-                    break
-            
-            # Fallback: get all text if no paragraphs found
-            if not paragraphs:
-                content_text = content_element.text.strip()
-                if content_text:
-                    paragraphs = [p.strip() for p in content_text.split('\n\n') if p.strip()]
-            
-            return '\n\n'.join(paragraphs) if paragraphs else None
-            
-        except Exception as e:
-            print(f"Error scraping chapter: {e}")
-            return None
-    
-    def save_chapter(self, title, content, index, output_dir):
-        """Save chapter to text file."""
-        if not content:
-            return False
-        
-        # Clean filename
-        safe_title = re.sub(r'[<>:"/\\|?*]', '_', title)
-        filename = f"Chapter_{index:03d}_{safe_title}.txt"
-        filepath = os.path.join(output_dir, filename)
-        
-        try:
-            with open(filepath, 'w', encoding='utf-8') as f:
-                f.write(f"Chapter {index}: {title}\n")
-                f.write("=" * 50 + "\n\n")
-                f.write(content)
-            print(f"Saved: {filename}")
-            return True
-        except Exception as e:
-            print(f"Error saving {title}: {e}")
-            return False
-    
-    def scrape_novel(self, novel_url, output_dir="output"):
-        """Main scraping method."""
-        # Validate URL
-        if "bilibili.com/read/readlist/" not in novel_url:
-            print("Invalid URL format. Use: https://www.bilibili.com/read/readlist/...")
-            return False
-        
-        try:
-            # Extract chapters
-            novel_title, chapters = self.extract_chapters(novel_url)
-            
-            if not chapters:
-                print("No chapters found.")
-                return False
-            
-            # Create output directory
-            safe_title = re.sub(r'[<>:"/\\|?*]', '_', novel_title)
-            novel_dir = os.path.join(output_dir, safe_title)
-            os.makedirs(novel_dir, exist_ok=True)
-            
-            print(f"\nStarting to scrape {len(chapters)} chapters...")
-            print(f"Output: {novel_dir}")
-            
-            # Scrape each chapter
-            success_count = 0
-            for i, chapter in enumerate(chapters, 1):
-                print(f"\n[{i}/{len(chapters)}] Processing: {chapter['title']}")
-                
-                content = self.scrape_chapter(chapter['url'])
-                if content and self.save_chapter(chapter['title'], content, chapter['index'], novel_dir):
-                    success_count += 1
-                else:
-                    print(f"Failed to scrape: {chapter['title']}")
-                
-                # Be respectful - add delay
-                time.sleep(1)
-            
-            print(f"\nCompleted! {success_count}/{len(chapters)} chapters saved to: {novel_dir}")
-            return True
-            
-        except Exception as e:
-            print(f"Scraping error: {e}")
-            return False
-        finally:
-            if self.driver:
-                self.driver.quit()
-                print("Browser closed.")
+    print(f"  ✓ Saved: {filename}")
+    return True
 
-
-def main():
-    print("Bilibili Novel Scraper")
-    print("=" * 30)
-    
-    # Get URL
-    novel_url = input("Enter Bilibili novel URL: ").strip()
-    if not novel_url:
-        print("No URL provided.")
-        return
-    
-    # Get output directory
-    output_dir = input("Output directory (default: 'output'): ").strip() or "output"
-    
-    # Headless mode
-    headless = input("Headless mode? (y/n, default: y): ").strip().lower() != 'n'
+def scrape_bilibili_novel(url, max_chapters=None, headless=True, output_dir="output"):
+    driver = setup_driver(headless=headless)
     
     try:
-        scraper = BilibiliNovelScraper(headless=headless)
-        scraper.scrape_novel(novel_url, output_dir)
-    except Exception as e:
-        print(f"Error: {e}")
-        print("\nMake sure ChromeDriver is installed:")
-        print("   https://chromedriver.chromium.org/")
-
+        print(f"Loading: {url}")
+        driver.get(url)
+        time.sleep(5)
+        
+        # Get novel title
+        novel_title = "Bilibili_Novel"
+        try:
+            title_xpath = "/html/body/div[2]/div[2]/div/div[1]/div[2]/div[1]"
+            title_elem = driver.find_element(By.XPATH, title_xpath)
+            novel_title = title_elem.text.strip()
+            print(f"Novel: {novel_title}")
+        except:
+            print("Could not find novel title, using default")
+        
+        # Find chapters
+        title_elements = driver.find_elements(By.CSS_SELECTOR, "div.title-text")
+        total_chapters = len(title_elements)
+        print(f"Found {total_chapters} chapters")
+        
+        if not title_elements:
+            print("No chapters found!")
+            return
+        
+        # Limit chapters if specified
+        if max_chapters:
+            title_elements = title_elements[:max_chapters]
+            print(f"Processing first {len(title_elements)} chapters")
+        
+        # Create output directory
+        safe_novel_title = re.sub(r'[<>:"/\\|?*]', '_', novel_title)
+        novel_dir = os.path.join(output_dir, safe_novel_title)
+        os.makedirs(novel_dir, exist_ok=True)
+        print(f"Output directory: {novel_dir}")
+        
+        success_count = 0
+        
+        # Process chapters
+        for i, elem in enumerate(title_elements, 1):
+            chapter_title = elem.text.strip()
+            print(f"\n[{i}/{len(title_elements)}] {chapter_title}")
+            
+            # Store original tab
+            original_window = driver.current_window_handle
+            
+            try:
+                # Click chapter (opens new tab)
+                driver.execute_script("arguments[0].click();", elem)
+                time.sleep(3)
+                
+                # Check for new tab
+                new_windows = driver.window_handles
+                if len(new_windows) > 1:
+                    # Switch to new tab
+                    new_tab = [w for w in new_windows if w != original_window][0]
+                    driver.switch_to.window(new_tab)
+                    
+                    # Extract content
+                    try:
+                        content_xpath = "/html/body/div[2]/div[4]/div[1]/div[4]"
+                        content_div = driver.find_element(By.XPATH, content_xpath)
+                        paragraphs = content_div.find_elements(By.TAG_NAME, "p")
+                        
+                        # Extract text from paragraphs
+                        content_parts = []
+                        for p in paragraphs:
+                            # Try spans first, then direct text
+                            spans = p.find_elements(By.TAG_NAME, "span")
+                            if spans:
+                                text = " ".join([s.text.strip() for s in spans if s.text.strip()])
+                            else:
+                                text = p.text.strip()
+                            
+                            if text and len(text) > 5:  # Skip very short texts
+                                content_parts.append(text)
+                        
+                        if content_parts:
+                            full_content = "\n\n".join(content_parts)
+                            print(f"  Extracted {len(paragraphs)} paragraphs, {len(full_content)} characters")
+                            
+                            # Save chapter
+                            if save_chapter(chapter_title, full_content, i, novel_dir):
+                                success_count += 1
+                        else:
+                            print("  ✗ No content extracted")
+                    
+                    except Exception as e:
+                        print(f"  ✗ Error extracting content: {e}")
+                    
+                    # Close tab and return
+                    driver.close()
+                    driver.switch_to.window(original_window)
+                else:
+                    print("  ✗ No new tab opened")
+            
+            except Exception as e:
+                print(f"  ✗ Error processing chapter: {e}")
+            
+            # Respectful delay
+            time.sleep(2)
+        
+        print(f"\n✅ Completed! {success_count}/{len(title_elements)} chapters saved")
+        print(f"📁 Files saved in: {novel_dir}")
+    
+    finally:
+        driver.quit()
 
 if __name__ == "__main__":
-    main()
+    print("🎭 Bilibili Novel Scraper")
+    print("=" * 40)
+    
+    url = input("Enter Bilibili novel URL: ").strip()
+    if not url:
+        print("❌ No URL provided")
+        exit()
+    
+    try:
+        max_chapters = int(input("Max chapters to scrape (0 for all): ") or "0")
+        if max_chapters <= 0:
+            max_chapters = None
+    except:
+        max_chapters = 5
+        print(f"Using default: {max_chapters} chapters")
+    
+    headless_input = input("Headless mode? (y/n, default: n): ").strip().lower()
+    headless = headless_input == 'y'
+    
+    print(f"\n🚀 Starting scraper (headless: {headless})...")
+    scrape_bilibili_novel(url, max_chapters=max_chapters, headless=headless)
