@@ -1,0 +1,9 @@
+[project]
+name = "scraper-novel"
+version = "0.1.0"
+description = "A simple tool to scrape novel content from the Bilibili website for personal use."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "selenium>=4.35.0"
+]
